@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: resumeai
+      POSTGRES_USER: resumeai
+      POSTGRES_PASSWORD: resumeai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resumeai -d resumeai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: resumeai
+      DB_USER: resumeai
+      DB_PASSWORD: resumeai
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+# frontend and a local LLM runtime (§27) are added in later milestones -
+# nothing to build yet.
+
+volumes:
+  postgres_data:
