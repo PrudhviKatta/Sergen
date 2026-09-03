@@ -1,4 +1,4 @@
-# Implementation Notes — Milestone 1
+# Implementation Notes — Milestones 1 &amp; 4
 
 Read `PHASE1_BASE_RESUME_GENERATOR.md` in this folder first; it is the source
 of truth. Section references below (`§N`) point into that document. This file
@@ -56,6 +56,75 @@ mvn -DskipTests package   # compile + package
 mvn verify                 # unit + Testcontainers integration tests, needs Docker running
 ```
 
+CI (`.github/workflows/ci.yml`) runs `mvn verify` on every push/PR to `main`
+and `dev` on GitHub's own runners (Docker preinstalled, Testcontainers works
+with zero extra config) — added specifically so bug #1 above (tests silently
+not running) can't happen invisibly again.
+
+## Status: Milestone 4 complete and build-verified (2026-09-03)
+
+Built the §14 Technology Timeline Engine, per the deliverable list in §43
+("Technology catalog, Timeline validation, Era profiles, Allowed technology
+selection"). Deliberately built **before** Milestones 2/3 — see "Why Milestone
+4 before 2/3" below. `mvn verify`: 20/20 tests green (7 unit + 13 integration).
+
+What it does, concretely:
+- `validation.TechnologyTimelineValidator.check(name, startYear, endYear)` —
+  looks up a technology in the seeded catalog and returns one of
+  `PASS` / `QUESTIONABLE` / `FAIL` / `UNKNOWN` with a human-readable reason.
+  Three tiers, not binary — §14's own worked example distinguishes "safe use"
+  from "prefer use" year thresholds for the same technology (Spring Boot:
+  released 2014, "prefer 2015+"), which a strict pass/fail can't represent.
+  `UNKNOWN` covers a technology name not in the catalog — deliberately not
+  collapsed into PASS or FAIL, since neither would be honest.
+- `validation.TechnologyTimelineValidator.suggestAlternatives(startYear, endYear)` —
+  returns the union of every §40 era profile's technologies whose date range
+  overlaps the given project range, alphabetized. A project spanning 2014-2017
+  legitimately draws from both the 2012-2015 and 2016-2019 profiles.
+- `technology.EraProfile` / `era_profile_technology` — new entity + join table
+  (`V2__era_profiles_and_technology_seed.sql`), five rows transcribed directly
+  from §40 (2008-2011 through 2024+), each linked to the technologies §40
+  actually lists for it.
+- The technology catalog itself: 42 rows, seeded in the same V2 migration,
+  covering every technology named across §14/§40/§41. Years are **curated
+  approximations**, not verified historical fact — e.g. Oracle and JavaScript
+  are modeled as "always mainstream" (1979/1995) rather than precisely dated,
+  since the engine only needs to catch clearly anachronistic combinations
+  (Java 21 on a 2012 project), not pass a history exam. Maintained
+  administratively per §14 — expect to hand-correct entries over time.
+- `validation.ChronologyValidator` — the `start_date <= end_date` check that
+  used to live inline in `CandidateProjectService` moved here, per the note
+  the Milestone-1 `package-info.java` left for whoever built this package.
+
+**Not built**: no REST endpoint. Nothing consumes this yet — the generation
+pipeline that would call it (§12: "Retrieve Era-Appropriate Technologies" and
+post-generation "Timeline Validation") doesn't exist until Milestone 5. Adding
+a controller now would be API surface with no caller and no spec citation for
+its shape — exactly what §56 says not to invent. When Milestone 5 wires the
+generation pipeline, it calls this service directly (same JVM, same module),
+not over HTTP.
+
+**Two runtime roles, same module**: per §12, "Retrieve Era-Appropriate
+Technologies" happens *before* generation (feeds `suggestAlternatives()`
+results into the prompt), while "Timeline Validation" happens *after*
+generation (feeds the LLM's chosen technologies through `check()`). Both are
+implemented here now; the architecture diagram in
+`docs/milestone-1-status.html` shows this module reading directly off the
+technology catalog + era profiles, independent of the (still unbuilt)
+retrieval engine.
+
+### Why Milestone 4 before 2/3
+
+§44's suggested build order is schema → manual data entry → embeddings →
+retrieval → timeline engine → generation. This diverges from that on purpose:
+the timeline engine has **zero dependency** on retrieval, embeddings, or an
+LLM provider existing — it's pure date-math against a seeded table. Building
+it now means Milestone 5 (generation) has one less unknown to wire up, and
+the core "don't generate Kubernetes for a 2012 project" differentiator
+(§3.3) is tested and working well before any LLM is involved. Retrieval
+(Milestone 3) still needs a chosen embedding provider before it can start —
+see §26/§49 — so it remains blocked on a decision this repo hasn't made yet.
+
 ## What's implemented
 
 Directory: `resume-ai/backend/src/main/java/com/company/resumeai/`
@@ -65,22 +134,28 @@ Directory: `resume-ai/backend/src/main/java/com/company/resumeai/`
 | `candidate` | `Candidate` entity, repository, service, controller, DTOs | Full CRUD-lite: create + get by id |
 | `client` | `Client` entity, repository, service, controller, DTOs, `ClientNameNormalizer` | Create is upsert-by-normalized-name (see below) |
 | `project` | `CandidateProject` entity, repository, service, controller, DTOs | Create + list-by-candidate; owns the chronology check |
-| `technology` | `Technology` entity + repository only | No service/controller — nothing calls it yet |
+| `technology` | `Technology`, `EraProfile` entities + repositories | No REST controller — read internally by `validation.TechnologyTimelineValidator` |
 | `knowledge` | `KnowledgeFragment` entity + repository, `FragmentType` enum | `embedding` column exists in the DB but is **not mapped** on the entity yet |
+| `validation` | `ChronologyValidator`, `TechnologyTimelineValidator`, `TimelineStatus`, `TechnologyTimelineCheck` | Milestone 4's timeline engine lives here; see the Milestone 4 section below |
 | `common.exception` | `ResourceNotFoundException`, `InvalidRequestException` | Thrown by services, turned into HTTP responses centrally |
 | `common.web` | `GlobalExceptionHandler`, `ApiError` | `@RestControllerAdvice` — all four exception types funnel through one place |
-| `ingestion`, `parser`, `embedding`, `retrieval`, `generation`, `prompt`, `validation`, `similarity`, `export`, `audit`, `config` | Empty except `package-info.java` | Each `package-info.java` says which milestone owns it and which spec section it implements — **read those before creating a new top-level package**, the slot is probably already reserved |
+| `ingestion`, `parser`, `embedding`, `retrieval`, `generation`, `prompt`, `similarity`, `export`, `audit`, `config` | Empty except `package-info.java` | Each `package-info.java` says which milestone owns it and which spec section it implements — **read those before creating a new top-level package**, the slot is probably already reserved |
 
-Schema: `resume-ai/backend/src/main/resources/db/migration/V1__init_schema.sql`
-(single Flyway migration). Tables: `candidate`, `client`, `candidate_project`,
-`technology`, `knowledge_fragment`. Field-by-field mapping to the spec is in
-§8.1/§8.2/§8.3/§8.5/§8.7 — the migration follows those exactly except where
-noted inline in the SQL comments.
+Schema: `resume-ai/backend/src/main/resources/db/migration/`. Two Flyway
+migrations: `V1__init_schema.sql` (`candidate`, `client`, `candidate_project`,
+`technology`, `knowledge_fragment`) and `V2__era_profiles_and_technology_seed.sql`
+(`era_profile`, `era_profile_technology`, plus the seed data for both). Never
+edit `V1` — it's already applied; schema changes are new `V3`, `V4`, ... files.
+Field-by-field mapping to the spec is in §8.1/§8.2/§8.3/§8.5/§8.7 — the
+migration follows those exactly except where noted inline in the SQL comments.
 
 ## Deliberately deferred (do not re-derive these as "missing")
 
-- **`project_technology` join table (§8.4)** — not created. Nothing about
-  timeline-aware technology selection exists yet; that's Milestone 4.
+- **`project_technology` join table (§8.4)** — not created. This is what will
+  eventually link a specific `candidate_project` to the technologies it
+  actually used (with `confidence` + `source`, per §8.4) — that's Milestone 5+,
+  once generation exists to populate it. The technology **catalog** and **era
+  profiles** are built (Milestone 4); what's missing is the per-project link.
 - **`resume_source` table (§8.6)** — not created. `candidate_project.source_resume_id`
   and `knowledge_fragment.source_resume_id` are plain nullable `UUID` columns
   with no FK constraint, because the table they'd reference doesn't exist
@@ -192,13 +267,14 @@ section.
 Everything else in §21 (`/resumes/upload`, `/resume-generations`, `/export`,
 etc.) is intentionally not implemented — those belong to Milestones 2, 5, 6, 8.
 
-## Suggested next step (Milestone 2, per §44's ordering)
+## Suggested next step
 
-§44 explicitly says build retrieval/generation against manually-entered data
-*before* the resume parser, so the natural next milestone per that ordering
-is actually **Milestone 3 (embeddings + retrieval)**, using the
-`candidate` / `client` / `candidate_project` data this milestone lets you
-create by hand via the API. Resume ingestion/parsing (Milestone 2 in §43's
-numbering) can come after. Whoever picks this up should re-read §44's
-rationale before deciding which to do first — it's a deliberate sequencing
-choice in the spec, not an oversight.
+With Milestones 1 and 4 done, what's left before generation (Milestone 5) can
+be wired up is **Milestone 3 (embeddings + retrieval)** — and that's blocked
+on a decision this repo hasn't made: which embedding provider (§26/§49 —
+OpenAI, local via Ollama, etc.), which determines the real
+`knowledge_fragment.embedding` vector dimension (currently a 1536 placeholder,
+see above). Resume ingestion/parsing (Milestone 2) can come after, per §44's
+own reasoning for building it last. Whoever picks this up next should read
+§26 and §49 before choosing a provider — privacy/data-retention terms matter
+here since real candidate resume content would flow through it.

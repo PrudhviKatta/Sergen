@@ -4,7 +4,7 @@ import com.company.resumeai.candidate.Candidate;
 import com.company.resumeai.candidate.CandidateService;
 import com.company.resumeai.client.Client;
 import com.company.resumeai.client.ClientService;
-import com.company.resumeai.common.exception.InvalidRequestException;
+import com.company.resumeai.validation.ChronologyValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,9 +29,7 @@ public class CandidateProjectService {
     @Transactional
     public CandidateProject create(UUID candidateId, ProjectCreateRequest request) {
         // §29 Chronology Validation: reject before it ever hits the DB check constraint.
-        if (request.startDate().isAfter(request.endDate())) {
-            throw new InvalidRequestException("startDate must not be after endDate");
-        }
+        ChronologyValidator.requireStartNotAfterEnd(request.startDate(), request.endDate());
 
         Candidate candidate = candidateService.getById(candidateId);
         Client client = clientService.getById(request.clientId());

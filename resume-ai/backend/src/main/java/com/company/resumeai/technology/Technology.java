@@ -5,9 +5,11 @@ import jakarta.persistence.*;
 import java.util.UUID;
 
 /**
- * Entity + repository only for Milestone 1, per §55/§56. No service/controller
- * yet - the technology catalog gets populated and queried starting in
- * Milestone 4 (technology timeline engine, §14).
+ * Catalog row for the §14 technology timeline engine. Populated by
+ * V2__era_profiles_and_technology_seed.sql, queried by
+ * validation.TechnologyTimelineValidator. No dedicated REST controller -
+ * nothing external needs to read/write this table directly yet; it's
+ * consumed internally until the generation pipeline (Milestone 5) exists.
  */
 @Entity
 @Table(name = "technology")
