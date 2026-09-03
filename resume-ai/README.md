@@ -1,5 +1,7 @@
 # resume-ai
 
+[![backend-ci](https://github.com/PrudhviKatta/Sergen/actions/workflows/ci.yml/badge.svg)](https://github.com/PrudhviKatta/Sergen/actions/workflows/ci.yml)
+
 AI-assisted base resume generator for a consultancy. Full design spec:
 [`docs/PHASE1_BASE_RESUME_GENERATOR.md`](docs/PHASE1_BASE_RESUME_GENERATOR.md).
 
