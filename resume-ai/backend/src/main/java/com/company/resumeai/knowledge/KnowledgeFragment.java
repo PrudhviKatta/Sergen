@@ -1,20 +1,24 @@
 package com.company.resumeai.knowledge;
 
+import com.company.resumeai.embedding.VectorCodec;
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
 
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Entity + repository only for Milestone 1, per §55/§56.
- *
- * The `embedding vector(1536)` column already exists in the V1 migration (see
- * V1__init_schema.sql) so the table shape matches §8.7, but it is deliberately
- * NOT mapped here yet: no embedding provider is chosen until Milestone 3, and
- * mapping a pgvector column needs either a custom Hibernate UserType or a
- * vector-aware dialect helper, which isn't worth adding before it's used.
  * candidate_id / client_id / project_id are plain UUID FKs (nullable, as
  * intended per §8.7 - a fragment need not belong to all three).
+ *
+ * `embedding` (Milestone 3): mapped as a plain String field holding
+ * pgvector's text literal format (e.g. "[0.12,0.34,...]"), with
+ * {@code @ColumnTransformer} casting it to/from the real `vector(1536)`
+ * column type at the SQL boundary. Deliberately not using a third-party
+ * pgvector-Hibernate integration (pgvector-java, hypersistence-utils) - this
+ * is simpler and has no unverified dependency. See VectorCodec for the
+ * float[] <-> text conversion, used by KnowledgeFragmentService when writing
+ * an embedding and RetrievalService when building a search query vector.
  */
 @Entity
 @Table(name = "knowledge_fragment")
@@ -52,6 +56,10 @@ public class KnowledgeFragment {
     @Column(name = "end_year")
     private Short endYear;
 
+    @Column(name = "embedding", columnDefinition = "vector(1536)")
+    @ColumnTransformer(write = "?::vector", read = "embedding::text")
+    private String embedding;
+
     @Column(name = "source_resume_id")
     private UUID sourceResumeId;
 
@@ -78,6 +86,10 @@ public class KnowledgeFragment {
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
+    }
+
+    public void applyEmbedding(float[] vector) {
+        this.embedding = VectorCodec.encode(vector);
     }
 
     public UUID getId() {
@@ -118,6 +130,10 @@ public class KnowledgeFragment {
 
     public Short getEndYear() {
         return endYear;
+    }
+
+    public boolean hasEmbedding() {
+        return embedding != null;
     }
 
     public UUID getSourceResumeId() {

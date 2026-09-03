@@ -1,4 +1,4 @@
-# Implementation Notes — Milestones 1 &amp; 4
+# Implementation Notes — Milestones 1, 3 &amp; 4
 
 Read `PHASE1_BASE_RESUME_GENERATOR.md` in this folder first; it is the source
 of truth. Section references below (`§N`) point into that document. This file
@@ -121,9 +121,10 @@ the timeline engine has **zero dependency** on retrieval, embeddings, or an
 LLM provider existing — it's pure date-math against a seeded table. Building
 it now means Milestone 5 (generation) has one less unknown to wire up, and
 the core "don't generate Kubernetes for a 2012 project" differentiator
-(§3.3) is tested and working well before any LLM is involved. Retrieval
-(Milestone 3) still needs a chosen embedding provider before it can start —
-see §26/§49 — so it remains blocked on a decision this repo hasn't made yet.
+(§3.3) is tested and working well before any LLM is involved. At the time
+this was written, retrieval (Milestone 3) was still blocked on an embedding
+provider decision (§26/§49) — that's since been resolved; see the Milestone 3
+section below.
 
 ## What's implemented
 
@@ -135,11 +136,13 @@ Directory: `resume-ai/backend/src/main/java/com/company/resumeai/`
 | `client` | `Client` entity, repository, service, controller, DTOs, `ClientNameNormalizer` | Create is upsert-by-normalized-name (see below) |
 | `project` | `CandidateProject` entity, repository, service, controller, DTOs | Create + list-by-candidate; owns the chronology check |
 | `technology` | `Technology`, `EraProfile` entities + repositories | No REST controller — read internally by `validation.TechnologyTimelineValidator` |
-| `knowledge` | `KnowledgeFragment` entity + repository, `FragmentType` enum | `embedding` column exists in the DB but is **not mapped** on the entity yet |
+| `knowledge` | `KnowledgeFragment` entity/repository/service/controller, `FragmentType` enum | `embedding` mapped via `@ColumnTransformer` (Milestone 3, see below); `POST`/`GET .../search` endpoints |
 | `validation` | `ChronologyValidator`, `TechnologyTimelineValidator`, `TimelineStatus`, `TechnologyTimelineCheck` | Milestone 4's timeline engine lives here; see the Milestone 4 section below |
+| `embedding` | `EmbeddingClient`, `OpenAiEmbeddingClient`, `VectorCodec`, `EmbeddingGenerationException` | Milestone 3; see the Milestone 3 section below |
+| `retrieval` | `RetrievalService`, `RetrievalFilter` | Milestone 3; combines vector search + structured filters |
 | `common.exception` | `ResourceNotFoundException`, `InvalidRequestException` | Thrown by services, turned into HTTP responses centrally |
 | `common.web` | `GlobalExceptionHandler`, `ApiError` | `@RestControllerAdvice` — all four exception types funnel through one place |
-| `ingestion`, `parser`, `embedding`, `retrieval`, `generation`, `prompt`, `similarity`, `export`, `audit`, `config` | Empty except `package-info.java` | Each `package-info.java` says which milestone owns it and which spec section it implements — **read those before creating a new top-level package**, the slot is probably already reserved |
+| `ingestion`, `parser`, `generation`, `prompt`, `similarity`, `export`, `audit`, `config` | Empty except `package-info.java` | Each `package-info.java` says which milestone owns it and which spec section it implements — **read those before creating a new top-level package**, the slot is probably already reserved |
 
 Schema: `resume-ai/backend/src/main/resources/db/migration/`. Two Flyway
 migrations: `V1__init_schema.sql` (`candidate`, `client`, `candidate_project`,
@@ -160,13 +163,6 @@ migration follows those exactly except where noted inline in the SQL comments.
   and `knowledge_fragment.source_resume_id` are plain nullable `UUID` columns
   with no FK constraint, because the table they'd reference doesn't exist
   until Milestone 2 (resume ingestion). Add the FK when that table lands.
-- **`knowledge_fragment.embedding`** — the column is in the migration
-  (`vector(1536)`) so the table shape won't need a later migration just to
-  add it, but it is **not mapped on the JPA entity**. Mapping a `vector`
-  column needs either a custom Hibernate `UserType` or a vector-aware
-  dialect helper (e.g. `hibernate-vector` or hand-rolled), and 1536 is a
-  placeholder dimension (OpenAI `text-embedding-3-small` size) — confirm the
-  real embedding model before wiring this up in Milestone 3.
 - **Client name normalization is naive.** `ClientNameNormalizer` only trims,
   collapses whitespace, and upper-cases. The real alias table from §29
   ("J.P. Morgan" / "JPMC" → "JPMorgan Chase") does not exist. Right now
@@ -246,6 +242,14 @@ curl -X POST localhost:8080/api/v1/clients \
   -d '{"name":"AT&T","industry":"Telecommunications"}'
 
 # then POST /api/v1/candidates/{candidateId}/projects with the returned clientId
+
+# Knowledge fragments need OPENAI_API_KEY set (they call embed() synchronously):
+export OPENAI_API_KEY=sk-...
+curl -X POST localhost:8080/api/v1/knowledge-fragments \
+  -H 'Content-Type: application/json' \
+  -d '{"fragmentType":"PROJECT_SUMMARY","content":"Modernized a core banking ledger system","domain":"Banking"}'
+
+curl 'localhost:8080/api/v1/knowledge-fragments/search?query=banking+ledger+modernization&domain=Banking'
 ```
 
 ## API surface implemented so far
@@ -256,25 +260,92 @@ GET  /api/v1/candidates/{candidateId}                 -> 200 CandidateResponse |
 POST /api/v1/clients                                  -> 201 ClientResponse (upsert by normalized name)
 POST /api/v1/candidates/{candidateId}/projects         -> 201 ProjectResponse | 404 (bad candidate/client) | 400 (bad dates/validation)
 GET  /api/v1/candidates/{candidateId}/projects         -> 200 ProjectResponse[]
+POST /api/v1/knowledge-fragments                       -> 201 KnowledgeFragmentResponse (embeds content synchronously)
+GET  /api/v1/knowledge-fragments/search?query=...      -> 200 KnowledgeFragmentResponse[] (+ domain/role/clientId/startYear/endYear/limit params)
 ```
 
-The `GET /api/v1/candidates/{candidateId}/projects` list endpoint isn't in
-§21's explicit list but was added because Milestone 1 already needs some way
-to inspect what got created, and it's a natural sub-resource GET — flagged
-here in case a future pass wants to reconcile it with the formal API design
-section.
+Two of these (`GET .../projects`, both `/knowledge-fragments` routes) aren't
+in §21's explicit list — each was added because its milestone needed *some*
+way to inspect/populate data that automation (the parser, the generation
+pipeline) doesn't produce yet. Flagged here in case a future pass wants to
+reconcile them with the formal API design section.
 
 Everything else in §21 (`/resumes/upload`, `/resume-generations`, `/export`,
 etc.) is intentionally not implemented — those belong to Milestones 2, 5, 6, 8.
 
+## Status: Milestone 3 complete and build-verified (2026-09-03)
+
+Built §13 (hybrid retrieval) and the embedding half of §24/§26. Provider:
+OpenAI `text-embedding-3-small` (1536 dims — matches the schema placeholder
+exactly, no migration needed). `mvn verify`: 30/30 tests green (14 unit, 16
+integration) — including a real round-trip through the pgvector column,
+which is the part that couldn't be assumed correct without running it.
+
+What it does:
+- `embedding.EmbeddingClient` (interface) / `OpenAiEmbeddingClient` (impl) —
+  calls OpenAI's REST embeddings endpoint directly via `java.net.http.HttpClient`
+  (no SDK dependency; Jackson for JSON is already on the classpath). Fails at
+  **call time**, not startup, if `OPENAI_API_KEY` isn't set — most of the app
+  doesn't need one.
+- `knowledge.KnowledgeFragment.embedding` is now mapped: a `String` field
+  holding pgvector's text literal (`[0.12,0.34,...]`), with Hibernate's
+  `@ColumnTransformer` casting it to/from the real `vector(1536)` column
+  (`write = "?::vector"`, `read = "embedding::text"`). Deliberately **not**
+  using a third-party pgvector-Hibernate library (pgvector-java,
+  hypersistence-utils) — this is ~10 lines, has no unverified dependency, and
+  was confirmed working against real Testcontainers Postgres before being
+  trusted. See `embedding.VectorCodec` for the `float[]` ↔ text conversion.
+- `retrieval.RetrievalService` — embeds a query string, then one native SQL
+  query (`KnowledgeFragmentRepository.findSimilar`) applies §13 step 1
+  (structured filters: domain, role, client, year-range overlap — each only
+  when non-null) and step 2 (pgvector `<=>` cosine-distance ordering)
+  together. §13 step 3 (diversity selection, avoid near-duplicate sources) is
+  **not** implemented — deferred to Milestone 5's generation pipeline, the
+  actual consumer of these results.
+- `POST /api/v1/knowledge-fragments` + `GET /api/v1/knowledge-fragments/search` —
+  not in §21's original API list. Added because retrieval needs *something*
+  to search, and resume ingestion (Milestone 2) doesn't exist yet to
+  populate it automatically — same "manual data entry before automation"
+  logic §44 itself uses to justify building embeddings before the parser.
+  Same interpretation-call pattern as the earlier `GET .../projects` list
+  endpoint from Milestone 1.
+
+**Testing note**: no OpenAI API key was available while building this (see
+earlier Q&A in-session), so `OpenAiEmbeddingClient` itself is only unit-tested
+(request building, response parsing, missing-key handling — all pure logic,
+no network call). The integration test (`KnowledgeFragmentApiIT`) swaps in a
+fake `EmbeddingClient` bean (`@TestConfiguration` + `@Primary`) that maps
+identical text to identical deterministic vectors (`new Random(text.hashCode())`)
+— enough to prove the pgvector round-trip, cosine ordering, and metadata
+filters all work correctly, without needing real semantic embeddings or a
+live API call. **Nobody has verified a real call to OpenAI's API from this
+codebase yet.** Once a key exists: `export OPENAI_API_KEY=sk-...` and run
+`mvn verify` — nothing else needs to change. Consider adding a
+`@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")`
+live-call test at that point so it's covered in any environment that does
+have the key, without requiring one everywhere (CI included).
+
+**Found and fixed one real bug while verifying this**: `KnowledgeFragmentApiIT`
+originally reused the domain value `"Banking"` across two test methods. Since
+`AbstractIntegrationTest` deliberately shares one DB across the *entire test
+suite* (no per-test transaction rollback — that's what makes the singleton
+Testcontainers pattern fast), a later test's filter assertion (`hasSize(1)`)
+saw 2 rows, not 1, because an earlier test's leftover row matched the same
+filter. Fixed by giving each test method's fixture data a unique domain
+(`"Banking-" + UUID.randomUUID()`). **Lesson: with this shared-DB test
+design, every test's fixture data must be unique across the whole suite, not
+just within its own test method** — a hardcoded value that "only this test
+uses" today can collide with a value some *other* test adds tomorrow.
+
 ## Suggested next step
 
-With Milestones 1 and 4 done, what's left before generation (Milestone 5) can
-be wired up is **Milestone 3 (embeddings + retrieval)** — and that's blocked
-on a decision this repo hasn't made: which embedding provider (§26/§49 —
-OpenAI, local via Ollama, etc.), which determines the real
-`knowledge_fragment.embedding` vector dimension (currently a 1536 placeholder,
-see above). Resume ingestion/parsing (Milestone 2) can come after, per §44's
-own reasoning for building it last. Whoever picks this up next should read
-§26 and §49 before choosing a provider — privacy/data-retention terms matter
-here since real candidate resume content would flow through it.
+With Milestones 1, 3, and 4 done, the natural next step is **Milestone 5
+(generation engine)**: prompt builder + LLM abstraction (§26, same
+provider-interface pattern as `EmbeddingClient`) that actually calls
+`RetrievalService` and `TechnologyTimelineValidator` together to draft a
+resume section. That's the first point where an LLM text-generation call
+(not just embeddings) gets wired in — pick a chat-completions provider before
+starting (§26/§49 apply here too). Resume ingestion/parsing (Milestone 2) can
+still come after, per §44's own reasoning for building it last — there's now
+a manual entry point (`POST /knowledge-fragments`) that makes that safe to
+keep deferring.
