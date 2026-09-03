@@ -5,23 +5,56 @@ of truth. Section references below (`§N`) point into that document. This file
 tracks what has actually been built, why specific choices were made, and what
 is still open — keep it up to date as later milestones land.
 
-## Status: Milestone 1 complete (per §43/§55/§56), not build-verified
+## Status: Milestone 1 complete and build-verified (2026-09-03)
 
-Everything described below was written by hand in a dev environment with
-**no `mvn`, `java`, or `docker` available** — nothing here has been compiled,
-run, or tested. Before trusting it:
+`mvn -DskipTests package` and `mvn verify` both pass — 9/9 integration tests
+green against a real Postgres+pgvector container (OrbStack, Java 21, Maven
+3.9.16). Two real bugs turned up on the first verified run and are fixed on
+`main`/`dev`; recorded here so nobody "fixes" them again from scratch or
+reintroduces the same pattern elsewhere:
+
+1. **`mvn verify` was silently running zero integration tests.** The `*IT.java`
+   naming convention only means something to the Failsafe plugin, which
+   `pom.xml` never declared — only `spring-boot-maven-plugin` was bound.
+   Surefire (the plugin that *was* wired) ignores `*IT.java` by its default
+   include pattern, so `verify` reported success having executed nothing.
+   Fixed by adding `maven-failsafe-plugin` with `integration-test`+`verify`
+   goals in `pom.xml`. **Lesson: a green `mvn verify` with zero test-count
+   output printed is a red flag, not a pass — check the actual test count.**
+
+2. **Testcontainers container got torn down between test classes.**
+   `AbstractIntegrationTest` originally used `@Testcontainers` + `@Container`
+   on a `static` `PostgreSQLContainer` field. Because the field lives on the
+   shared base class (one field, shared identity across every subclass), the
+   first test class to finish stopped the container in its `afterAll`, and
+   the next class's cached Spring context kept the now-dead JDBC port —
+   `Connection refused`. Fixed by switching to Testcontainers' documented
+   "singleton container" pattern: start it manually in a `static { }`
+   initializer, no `@Container` annotation, no explicit stop (the Ryuk
+   reaper cleans it up when the JVM exits). This also made Spring reuse one
+   cached `ApplicationContext` across all three IT classes instead of
+   rebuilding it per class — full suite dropped from ~3 min to ~6s.
+
+3. **`GET /candidates/{id}/projects` threw `LazyInitializationException`.**
+   `ProjectResponse.from()` reads `project.getClient().getName()`, a lazy
+   `@ManyToOne`. `POST .../projects` never hit this because the `Client` it
+   maps is the same already-loaded managed instance handed in from
+   `clientService.getById()`, not a lazy proxy — but the list query returns
+   fresh entities where `candidate`/`client` genuinely are unfetched proxies,
+   and `open-in-view` is off, so the session is closed by the time the
+   controller maps them. Fixed with `@EntityGraph(attributePaths =
+   {"candidate", "client"})` on `findByCandidateIdOrderByStartDateAsc`.
+   **Lesson: a service method returning JPA entities with lazy associations
+   is only as safe as every call site that touches those associations later
+   — verify each one, don't assume "it worked for create" covers "list" too.**
+
+To reproduce locally:
 
 ```
 cd resume-ai/backend
-mvn -q -DskipTests package     # confirms it compiles
-mvn -q test                    # unit tests (there are none yet, but this catches wiring issues)
-mvn -q verify                  # runs the Testcontainers integration tests — needs a local Docker daemon
+mvn -DskipTests package   # compile + package
+mvn verify                 # unit + Testcontainers integration tests, needs Docker running
 ```
-
-If compilation fails, the most likely culprits are Spring Boot 3.5.16 API
-drift (dependency versions weren't resolved against a real Maven repo) or a
-typo in one of the JPA annotations. Fix forward; the architecture below
-should not need to change to fix a build error.
 
 ## What's implemented
 

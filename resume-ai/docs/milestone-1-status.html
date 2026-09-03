@@ -1,0 +1,596 @@
+<title>Sergen Foundation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F6F7F9;
+    --surface: #FFFFFF;
+    --surface-2: #EEF1F5;
+    --border: #DCE1E8;
+    --ink: #12161C;
+    --ink-muted: #5B6472;
+    --ink-faint: #8992A1;
+    --accent: #1C6E8C;
+    --accent-soft: #E4F1F5;
+    --done: #2F8F5C;
+    --done-soft: #E4F5EC;
+    --planned: #B9701F;
+    --planned-soft: #FBEEDD;
+    --shadow: 0 1px 2px rgba(18,22,28,0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161C;
+      --surface: #181D25;
+      --surface-2: #1F2530;
+      --border: #2B323D;
+      --ink: #EAEDF1;
+      --ink-muted: #9AA4B2;
+      --ink-faint: #69717D;
+      --accent: #63BBD8;
+      --accent-soft: rgba(99,187,216,0.12);
+      --done: #5FCB8F;
+      --done-soft: rgba(95,203,143,0.12);
+      --planned: #E0A052;
+      --planned-soft: rgba(224,160,82,0.12);
+      --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #12161C;
+    --surface: #181D25;
+    --surface-2: #1F2530;
+    --border: #2B323D;
+    --ink: #EAEDF1;
+    --ink-muted: #9AA4B2;
+    --ink-faint: #69717D;
+    --accent: #63BBD8;
+    --accent-soft: rgba(99,187,216,0.12);
+    --done: #5FCB8F;
+    --done-soft: rgba(95,203,143,0.12);
+    --planned: #E0A052;
+    --planned-soft: rgba(224,160,82,0.12);
+    --shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    padding: 56px 24px 80px;
+  }
+
+  h1, h2, h3 {
+    font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+    font-weight: 700;
+    text-wrap: balance;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 14px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .masthead h1 { font-size: 34px; letter-spacing: -0.01em; }
+
+  .dek {
+    color: var(--ink-muted);
+    font-size: 16px;
+    max-width: 62ch;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-muted);
+  }
+
+  .chip.status {
+    background: var(--done-soft);
+    border-color: transparent;
+    color: var(--done);
+    font-family: "IBM Plex Sans", sans-serif;
+    font-weight: 600;
+  }
+
+  .chip.status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--done);
+    flex-shrink: 0;
+  }
+
+  /* ---------- section scaffolding ---------- */
+
+  section { display: flex; flex-direction: column; gap: 18px; }
+
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+
+  .section-head h2 { font-size: 20px; }
+
+  .section-head .count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-faint); }
+
+  /* ---------- built grid ---------- */
+
+  .built-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 14px;
+  }
+
+  .built-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .built-card .label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .built-card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+  .built-card li {
+    font-size: 13.5px;
+    color: var(--ink);
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .built-card li::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 8px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--done);
+  }
+
+  .built-card li .mono { color: var(--ink-muted); font-size: 12.5px; }
+
+  /* ---------- diagram ---------- */
+
+  .diagram-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .diagram-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .diagram-scroll svg {
+    display: block;
+    width: 1500px;
+    max-width: none;
+    height: auto;
+    color: var(--ink);
+  }
+
+  figcaption {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--ink-muted);
+  }
+
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+
+  .legend-swatch { width: 22px; height: 0; border-top-width: 2.5px; border-top-style: solid; flex-shrink: 0; }
+  .legend-swatch.done { border-color: var(--done); }
+  .legend-swatch.planned { border-color: var(--planned); border-top-style: dashed; }
+
+  /* ---------- roadmap ---------- */
+
+  .roadmap { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+
+  .roadmap-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .roadmap-row:last-child { border-bottom: none; }
+
+  .roadmap-row.current { background: var(--done-soft); }
+
+  .roadmap-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .roadmap-row.current .roadmap-num { color: var(--done); font-weight: 600; }
+
+  .roadmap-name { font-size: 14px; font-weight: 500; }
+  .roadmap-name span { display: block; font-size: 12.5px; font-weight: 400; color: var(--ink-muted); margin-top: 1px; }
+
+  .pill {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    padding: 4px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .pill.done { background: var(--done-soft); color: var(--done); }
+  .pill.planned { background: var(--planned-soft); color: var(--planned); }
+
+  /* ---------- api table ---------- */
+
+  table.api {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  table.api th, table.api td {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table.api th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--surface-2);
+    font-weight: 500;
+  }
+
+  table.api tr:last-child td { border-bottom: none; }
+  table.api td.path { font-family: "IBM Plex Mono", monospace; color: var(--ink); }
+  table.api td.verb { font-family: "IBM Plex Mono", monospace; font-weight: 600; color: var(--accent); }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--border);
+    padding-top: 18px;
+  }
+
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover, a:focus-visible { text-decoration: underline; }
+  a:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    main { animation: none; }
+  }
+</style>
+
+<main>
+
+  <header class="masthead">
+    <div class="eyebrow">Phase 1 · Base Resume Generator</div>
+    <h1>Milestone 1: Backend Foundation</h1>
+    <p class="dek">Schema, entities, and REST CRUD for candidates, clients, and projects — the substrate the retrieval and generation pipeline gets built on next. No LLM wired in yet, by design.</p>
+    <div class="meta-row">
+      <span class="chip status"><span class="dot"></span>1 of 8 milestones</span>
+      <span class="chip">github.com/PrudhviKatta/Sergen</span>
+      <span class="chip">branch: main · dev</span>
+      <span class="chip">Spring Boot 3.5.16 · Java 21</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>What's built</h2>
+      <span class="count">54 files · 1 commit</span>
+    </div>
+    <div class="built-grid">
+      <div class="built-card">
+        <div class="label">Data model</div>
+        <ul>
+          <li>5 tables via <span class="mono">V1__init_schema.sql</span></li>
+          <li>candidate, client, candidate_project</li>
+          <li>technology, knowledge_fragment</li>
+          <li><span class="mono">vector(1536)</span> column reserved for embeddings</li>
+        </ul>
+      </div>
+      <div class="built-card">
+        <div class="label">REST API</div>
+        <ul>
+          <li>5 endpoints across 3 resources</li>
+          <li>Candidate + Client create/read</li>
+          <li>Project create + list-by-candidate</li>
+        </ul>
+      </div>
+      <div class="built-card">
+        <div class="label">Validation</div>
+        <ul>
+          <li>Bean validation on every request DTO</li>
+          <li>Chronology check: start ≤ end date</li>
+          <li>Duplicate-email rejection</li>
+          <li>Client upsert by normalized name</li>
+        </ul>
+      </div>
+      <div class="built-card">
+        <div class="label">Error handling</div>
+        <ul>
+          <li>Single <span class="mono">@RestControllerAdvice</span></li>
+          <li>Consistent <span class="mono">ApiError</span> JSON shape</li>
+          <li>404 / 400 / validation-400 distinguished</li>
+        </ul>
+      </div>
+      <div class="built-card">
+        <div class="label">Testing</div>
+        <ul>
+          <li>3 Testcontainers integration suites</li>
+          <li>Real Postgres + pgvector, not mocked</li>
+          <li>Covers create, 404, duplicate, bad-date paths</li>
+        </ul>
+      </div>
+      <div class="built-card">
+        <div class="label">Infra &amp; docs</div>
+        <ul>
+          <li><span class="mono">docker-compose.yml</span> — postgres + backend</li>
+          <li>Multi-stage backend <span class="mono">Dockerfile</span></li>
+          <li><span class="mono">IMPLEMENTATION_NOTES.md</span> for handoff</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Architecture</h2>
+      <span class="count">request path + reserved pipeline</span>
+    </div>
+    <div class="diagram-panel">
+      <div class="diagram-scroll">
+        <figure style="margin:0;">
+          <svg viewBox="0 0 1500 460" role="img" aria-label="A client calls the REST controllers, which call the service layer, which reads and writes the PostgreSQL and pgvector database. That database is the only piece built so far. Two future paths are not built yet: resume upload and parsing feed knowledge fragments into the same database from above, and to the right of the database, retrieval, generation, and export stages will read from it once they exist.">
+
+            <defs>
+              <marker id="arrow-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)" />
+              </marker>
+              <marker id="arrow-planned" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--planned)" />
+              </marker>
+            </defs>
+
+            <!-- ============ LEFT CHAIN (built, teal) ============ -->
+
+            <rect x="20" y="240" width="110" height="60" rx="6" fill="var(--surface)" style="stroke:var(--accent);stroke-width:1.6" />
+            <text x="75" y="266" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Client</text>
+            <text x="75" y="282" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">curl / frontend</text>
+
+            <line x1="130" y1="270" x2="186" y2="270" style="stroke:var(--accent);stroke-width:1.6" marker-end="url(#arrow-done)" />
+            <text x="158" y="260" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">HTTP</text>
+
+            <rect x="190" y="240" width="210" height="60" rx="6" fill="var(--surface)" style="stroke:var(--accent);stroke-width:1.6" />
+            <text x="295" y="264" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">REST Controllers</text>
+            <text x="295" y="280" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">candidate · client · project</text>
+
+            <line x1="400" y1="270" x2="406" y2="270" style="stroke:var(--accent);stroke-width:1.6" />
+            <line x1="406" y1="270" x2="446" y2="270" style="stroke:var(--accent);stroke-width:1.6" marker-end="url(#arrow-done)" />
+            <text x="425" y="260" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">calls</text>
+
+            <rect x="410" y="240" width="140" height="60" rx="6" fill="var(--surface)" style="stroke:var(--accent);stroke-width:1.6" />
+            <text x="480" y="264" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Service Layer</text>
+            <text x="480" y="280" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">chronology check</text>
+
+            <line x1="550" y1="270" x2="558" y2="270" style="stroke:var(--accent);stroke-width:1.6" marker-end="url(#arrow-done)" />
+            <text x="555" y="260" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)"></text>
+
+            <!-- ============ DB CYLINDER (built, teal, filled = the one thing that carries meaning) ============ -->
+
+            <path d="M 560,241 L 560,299 A 100,16 0 0 0 760,299 L 760,241"
+                  fill="var(--accent-soft)" style="stroke:var(--accent);stroke-width:1.8" />
+            <path d="M 560,241 A 100,16 0 0 0 760,241" fill="var(--accent-soft)" style="stroke:var(--accent);stroke-width:1.8" />
+            <ellipse cx="660" cy="241" rx="100" ry="16" fill="none" style="stroke:var(--accent);stroke-width:1.8" />
+            <text x="660" y="268" text-anchor="middle" font-size="13.5" font-weight="700" fill="var(--ink)">PostgreSQL</text>
+            <text x="660" y="284" text-anchor="middle" font-size="11" fill="var(--ink-muted)">+ pgvector</text>
+            <text x="660" y="330" text-anchor="middle" font-size="10.5" fill="var(--ink-faint)">5 tables · Flyway V1 · vector(1536) unmapped</text>
+
+            <!-- ============ TOP CHAIN (planned, amber dashed) — ingestion feeds the same DB ============ -->
+
+            <rect x="430" y="40" width="150" height="60" rx="6" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" />
+            <text x="505" y="64" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Resume Upload</text>
+            <text x="505" y="80" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">M2 · not built</text>
+
+            <line x1="580" y1="70" x2="604" y2="70" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" marker-end="url(#arrow-planned)" />
+            <text x="592" y="60" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">parse</text>
+
+            <rect x="608" y="40" width="180" height="60" rx="6" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" />
+            <text x="698" y="64" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Knowledge Fragments</text>
+            <text x="698" y="80" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">M2–M3 · not built</text>
+
+            <polyline points="698,100 698,150 660,150 660,224" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" marker-end="url(#arrow-planned)" />
+            <text x="706" y="140" font-size="10.5" fill="var(--ink-muted)">embed</text>
+
+            <!-- ============ RIGHT CHAIN (planned, amber dashed) — retrieval → generation → export ============ -->
+
+            <line x1="760" y1="270" x2="796" y2="270" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" marker-end="url(#arrow-planned)" />
+
+            <rect x="800" y="240" width="200" height="60" rx="6" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" />
+            <text x="900" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Retrieval + Timeline</text>
+            <text x="900" y="275" text-anchor="middle" font-size="10.5" fill="var(--ink)">Engine</text>
+            <text x="900" y="291" text-anchor="middle" font-size="10" fill="var(--ink-muted)">M3–M4 · not built</text>
+
+            <line x1="1000" y1="270" x2="1036" y2="270" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" marker-end="url(#arrow-planned)" />
+            <text x="1018" y="260" text-anchor="middle" font-size="10" fill="var(--ink-muted)">era-filtered context</text>
+
+            <rect x="1040" y="240" width="230" height="60" rx="6" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" />
+            <text x="1155" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Generation +</text>
+            <text x="1155" y="275" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Similarity Check</text>
+            <text x="1155" y="291" text-anchor="middle" font-size="10" fill="var(--ink-muted)">M5–M6 · not built</text>
+
+            <line x1="1270" y1="270" x2="1306" y2="270" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" marker-end="url(#arrow-planned)" />
+            <text x="1288" y="260" text-anchor="middle" font-size="10" fill="var(--ink-muted)">validated draft</text>
+
+            <rect x="1310" y="240" width="170" height="60" rx="6" fill="none" style="stroke:var(--planned);stroke-width:1.6;stroke-dasharray:5 4" />
+            <text x="1395" y="264" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Resume Export</text>
+            <text x="1395" y="280" text-anchor="middle" font-size="10.5" fill="var(--ink-muted)">M8 · not built</text>
+
+          </svg>
+        </figure>
+      </div>
+      <figcaption>The request path that exists today runs left of the database, solid teal: a client calls the REST controllers, which call the service layer, which reads and writes Postgres. Everything dashed amber — resume ingestion feeding the database from above, and retrieval/generation/export reading from it on the right — is scaffolded as empty packages with no logic yet.</figcaption>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch done"></span>Built — Milestone 1</div>
+        <div class="legend-item"><span class="legend-swatch planned"></span>Planned — Milestones 2–8</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>API surface</h2>
+      <span class="count">5 endpoints live</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="api">
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>Returns</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="verb">POST</td><td class="path">/api/v1/candidates</td><td>201 Candidate</td></tr>
+          <tr><td class="verb">GET</td><td class="path">/api/v1/candidates/{id}</td><td>200 Candidate · 404</td></tr>
+          <tr><td class="verb">POST</td><td class="path">/api/v1/clients</td><td>201 Client (upsert)</td></tr>
+          <tr><td class="verb">POST</td><td class="path">/api/v1/candidates/{id}/projects</td><td>201 Project · 400 · 404</td></tr>
+          <tr><td class="verb">GET</td><td class="path">/api/v1/candidates/{id}/projects</td><td>200 Project[]</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Roadmap</h2>
+      <span class="count">§43 of the spec</span>
+    </div>
+    <div class="roadmap">
+      <div class="roadmap-row current">
+        <span class="roadmap-num">01</span>
+        <span class="roadmap-name">Database + schema<span>Candidate, Client, Project, Technology, KnowledgeFragment</span></span>
+        <span class="pill done">done</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">02</span>
+        <span class="roadmap-name">Resume ingestion<span>Upload, text extraction, structured parsing</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">03</span>
+        <span class="roadmap-name">Embeddings + retrieval<span>Vector storage, hybrid structured + semantic search</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">04</span>
+        <span class="roadmap-name">Technology timeline engine<span>Era profiles, allowed-technology filtering</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">05</span>
+        <span class="roadmap-name">Generation engine<span>Prompt builder, LLM abstraction, resume assembly</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">06</span>
+        <span class="roadmap-name">Similarity validator<span>Duplicate-phrase detection, rewrite loop</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">07</span>
+        <span class="roadmap-name">Frontend<span>Upload, generation input, review screens</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+      <div class="roadmap-row">
+        <span class="roadmap-num">08</span>
+        <span class="roadmap-name">Export<span>Markdown, DOCX, PDF</span></span>
+        <span class="pill planned">planned</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Build-verified 2026-09-03: <code class="mono">mvn verify</code> passes, 9/9 integration tests green against real Postgres+pgvector.</span>
+    <span><a href="https://github.com/PrudhviKatta/Sergen">github.com/PrudhviKatta/Sergen</a> — full notes in <code class="mono">docs/IMPLEMENTATION_NOTES.md</code></span>
+  </footer>
+
+</main>

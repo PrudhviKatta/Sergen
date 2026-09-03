@@ -92,6 +92,23 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- *IT.java classes (AbstractIntegrationTest subclasses) are integration
+                 tests, not unit tests: Surefire's default *Test.java pattern skips them
+                 silently, so without Failsafe bound here `mvn verify` reports success
+                 having run zero of them. Binding it is what makes `mvn verify` mean
+                 something. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

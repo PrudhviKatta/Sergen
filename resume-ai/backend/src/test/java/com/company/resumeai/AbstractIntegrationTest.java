@@ -7,8 +7,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -16,21 +14,35 @@ import org.testcontainers.utility.DockerImageName;
  * Postgres+pgvector container (Flyway runs the real V1 migration against it)
  * so these exercise the actual schema, not an in-memory substitute.
  *
- * Requires a local Docker daemon. Not run as part of this session (no Docker
- * available in this dev environment) - verify with `mvn verify` locally
- * before relying on it. See docs/IMPLEMENTATION_NOTES.md.
+ * The container is started manually in a static initializer and NEVER
+ * stopped by us - this is Testcontainers' documented "singleton container"
+ * pattern for sharing one container across multiple test classes via a
+ * shared base class. Deliberately NOT using @Testcontainers/@Container here:
+ * that annotation pair manages start/stop per test class, and since this
+ * static field is inherited (one field, shared identity across every
+ * subclass), the first class to finish would stop the container out from
+ * under every class that runs after it - which is exactly what happened the
+ * first time this was run (ClientApiIT and CandidateProjectApiIT both got
+ * "Connection refused" once CandidateApiIT's class-level teardown killed the
+ * container - see git history / IMPLEMENTATION_NOTES.md). The Ryuk reaper
+ * Testcontainers starts alongside the container cleans it up when the JVM
+ * exits, so nothing leaks even without an explicit stop() here.
+ *
+ * Requires a local Docker daemon.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
-@Testcontainers
 public abstract class AbstractIntegrationTest {
 
-    @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
             DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("resumeai")
             .withUsername("resumeai")
             .withPassword("resumeai");
+
+    static {
+        POSTGRES.start();
+    }
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
