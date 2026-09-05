@@ -310,20 +310,41 @@ What it does:
   Same interpretation-call pattern as the earlier `GET .../projects` list
   endpoint from Milestone 1.
 
-**Testing note**: no OpenAI API key was available while building this (see
-earlier Q&A in-session), so `OpenAiEmbeddingClient` itself is only unit-tested
-(request building, response parsing, missing-key handling — all pure logic,
-no network call). The integration test (`KnowledgeFragmentApiIT`) swaps in a
-fake `EmbeddingClient` bean (`@TestConfiguration` + `@Primary`) that maps
-identical text to identical deterministic vectors (`new Random(text.hashCode())`)
-— enough to prove the pgvector round-trip, cosine ordering, and metadata
-filters all work correctly, without needing real semantic embeddings or a
-live API call. **Nobody has verified a real call to OpenAI's API from this
-codebase yet.** Once a key exists: `export OPENAI_API_KEY=sk-...` and run
-`mvn verify` — nothing else needs to change. Consider adding a
-`@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")`
-live-call test at that point so it's covered in any environment that does
-have the key, without requiring one everywhere (CI included).
+**Testing note**: `OpenAiEmbeddingClient` itself is unit-tested (request
+building, response parsing, missing-key handling — pure logic, no network
+call). The integration test (`KnowledgeFragmentApiIT`) swaps in a fake
+`EmbeddingClient` bean (`@TestConfiguration` + `@Primary`) that maps identical
+text to identical deterministic vectors (`new Random(text.hashCode())`) —
+proves the pgvector round-trip, cosine ordering, and metadata filters all
+work, without needing a real API call in CI.
+
+**Live-verified against the real OpenAI API on 2026-09-05**, manually, once a
+key with billing enabled was available (the first attempt hit
+`insufficient_quota` — the key was valid but the account had no credits; that
+is a distinct failure mode from a bad/missing key and worth telling apart
+when debugging this later). Three checks, in order of what they actually
+prove:
+1. Raw `curl` to `https://api.openai.com/v1/embeddings` — confirmed the
+   response shape matches what `parseEmbeddingResponse` expects: 200 OK,
+   `data[0].embedding` is a 1536-length float array, `model` echoes back
+   `text-embedding-3-small`.
+2. `POST /api/v1/knowledge-fragments` against the real running app (not a
+   test) — `hasEmbedding: true`, and `SELECT vector_dims(embedding) ...`
+   against the actual Postgres row confirmed a real 1536-dim vector landed
+   in the `vector(1536)` column via the `@ColumnTransformer` mapping.
+3. **The one that actually matters**: created Banking/Telecom/Healthcare
+   fragments, then ran `GET .../search` with differently-flavored queries.
+   A banking-flavored query ranked the Banking fragment first; a
+   telecom-flavored query flipped the ranking to put Telecom first;
+   filtering by `domain=Healthcare` correctly excluded the other two. This
+   is the first proof that real OpenAI embeddings produce *useful* semantic
+   rankings for this domain, not just that the plumbing doesn't throw.
+
+No test in the repo exercises the live API (deliberately — no key in CI), so
+this stays a manual check. If it's worth automating later, add
+`@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")` to
+a new test so it runs wherever a key happens to be present without requiring
+one everywhere.
 
 **Found and fixed one real bug while verifying this**: `KnowledgeFragmentApiIT`
 originally reused the domain value `"Banking"` across two test methods. Since
