@@ -88,6 +88,11 @@ public class KnowledgeFragment {
         this.createdAt = Instant.now();
     }
 
+    /** Milestone 2: links a fragment back to the resume_source it was extracted from, if any. */
+    public void applySourceResume(UUID sourceResumeId) {
+        this.sourceResumeId = sourceResumeId;
+    }
+
     public void applyEmbedding(float[] vector) {
         this.embedding = VectorCodec.encode(vector);
     }

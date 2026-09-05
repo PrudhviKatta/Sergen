@@ -4,6 +4,8 @@ import com.company.resumeai.embedding.EmbeddingClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 public class KnowledgeFragmentService {
 
@@ -29,7 +31,16 @@ public class KnowledgeFragmentService {
                 request.startYear(),
                 request.endYear()
         );
+        if (request.sourceResumeId() != null) {
+            fragment.applySourceResume(request.sourceResumeId());
+        }
         fragment.applyEmbedding(embeddingClient.embed(request.content()));
         return knowledgeFragmentRepository.save(fragment);
+    }
+
+    /** Used when deleting a resume_source - see ingestion.ResumeUploadService.delete(). */
+    @Transactional
+    public long deleteBySourceResumeId(UUID sourceResumeId) {
+        return knowledgeFragmentRepository.deleteBySourceResumeId(sourceResumeId);
     }
 }

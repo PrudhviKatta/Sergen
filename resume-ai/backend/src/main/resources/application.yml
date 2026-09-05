@@ -20,6 +20,12 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  # Milestone 2: Spring's default (1MB) is too small for a real resume upload.
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -28,6 +34,7 @@ server:
 openai:
   api-key: ${OPENAI_API_KEY:}
   embedding-model: text-embedding-3-small
+  chat-model: ${OPENAI_CHAT_MODEL:gpt-4o-mini}
 
 logging:
   level:

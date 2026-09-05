@@ -14,6 +14,7 @@ public record KnowledgeFragmentCreateRequest(
         String domain,
         String role,
         Short startYear,
-        Short endYear
+        Short endYear,
+        UUID sourceResumeId
 ) {
 }

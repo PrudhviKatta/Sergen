@@ -1,0 +1,9 @@
+/* MUI's CssBaseline (applied in main.tsx) handles the real reset; this is
+   just the couple of things it doesn't cover. */
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+}

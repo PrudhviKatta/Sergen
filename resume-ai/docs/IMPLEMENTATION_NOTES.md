@@ -1,4 +1,4 @@
-# Implementation Notes — Milestones 1, 3 &amp; 4
+# Implementation Notes — Milestones 1, 2, 3, 4, 5, 6 &amp; 7
 
 Read `PHASE1_BASE_RESUME_GENERATOR.md` in this folder first; it is the source
 of truth. Section references below (`§N`) point into that document. This file
@@ -358,15 +358,333 @@ design, every test's fixture data must be unique across the whole suite, not
 just within its own test method** — a hardcoded value that "only this test
 uses" today can collide with a value some *other* test adds tomorrow.
 
+## Status: Milestone 5 complete and build-verified (2026-09-04)
+
+Built the §12 generation pipeline end to end for a single resume-generation
+request: prompt builder (§16), LLM provider abstraction (§26), project
+generation, and candidate-summary generation. `mvn verify`: 43/43 tests green
+(24 unit, 19 integration).
+
+What it does:
+- `generation.LlmClient` (interface) / `generation.OpenAiLlmClient` (impl) —
+  calls OpenAI's chat completions endpoint directly via
+  `java.net.http.HttpClient`, same pattern as `embedding.OpenAiEmbeddingClient`:
+  no SDK dependency, fails at **call time** (not startup) if `OPENAI_API_KEY`
+  isn't set. Default model `gpt-4o-mini`, overridable via `OPENAI_CHAT_MODEL`.
+- `prompt.ProjectGenerationPromptBuilder` / `prompt.SummaryGenerationPromptBuilder`
+  — §16's system-prompt guardrails (no copying, no technologies outside the
+  approved list, no invented awards/metrics/certifications) plus a
+  user-message builder. Each has a `VERSION` constant (§33) recorded on the
+  row it produced. Deliberately plain Java text blocks rather than
+  file/DB-backed templates — §33's suggestion, but with only two prompts and
+  one version each, a template-loading mechanism has no payoff yet. Revisit
+  if a v2 needs to coexist with v1.
+- `generation.ResumeGenerationService` — the orchestrator. For each input
+  project: validates chronology (`validation.ChronologyValidator`, same 400
+  on bad input as `CandidateProjectService`), resolves the approved
+  technology list (known technologies filtered through
+  `TechnologyTimelineValidator.checkAll` if supplied, otherwise
+  `suggestAlternatives` from the era profile — the Milestone 4 engine's
+  first real consumer), retrieves reference fragments
+  (`RetrievalService.retrieveSimilar`), builds the prompt, and parses the
+  LLM's JSON response into description/responsibilities/environment. After
+  every project drafts, one more LLM call produces the candidate summary
+  from all project descriptions. The whole thing runs **synchronously** in
+  one request — no queue/async infra exists yet, and nothing in §12 requires
+  one for Phase 1.
+- A generation either completes or fails, and both are stored, not thrown as
+  a 500: `LlmGenerationException` from *either* LLM call is caught at the top
+  of `generate()` and recorded as `status=FAILED` with `failureReason` on the
+  `ResumeGeneration` row itself. `InvalidRequestException` (bad chronology) is
+  **not** caught here — that's a client-input problem, so it propagates to
+  `GlobalExceptionHandler` as a 400 the same way it does everywhere else in
+  the app, and nothing gets persisted.
+- `POST /api/v1/resume-generations` + `GET /api/v1/resume-generations/{id}` —
+  §21's "Generate Base Resume" / "Get Generation". Regenerate/approve/export
+  are **not** built — they belong to the rewrite loop (Milestone 6) and
+  export (Milestone 8), neither of which exists yet.
+- `GeneratedProject.responsibilities`/`environment` are stored as one
+  delimited text column each (newline- and comma-joined), not a child table —
+  they're only ever rendered back as a list for their parent project, never
+  queried individually, so a join table would add mapping complexity with no
+  query benefit.
+
+**Testing note**: `OpenAiLlmClient` is unit-tested the same way as
+`OpenAiEmbeddingClient` — request building, response parsing, missing-key
+handling, no network call. `ResumeGenerationApiIT` swaps in both a fake
+`EmbeddingClient` (same deterministic-vector trick as `KnowledgeFragmentApiIT`)
+and a fake `LlmClient` (`@TestConfiguration` + `@Primary`, returns a canned
+JSON project response or a canned summary sentence depending on which system
+prompt it was handed) — proves the whole pipeline wiring (retrieval → timeline
+engine → prompt → parse → persist → summary) without a real API key or cost.
+No test exercises the live OpenAI chat completions API — same reasoning and
+same `@EnabledIfEnvironmentVariable` opt-in path as Milestone 3's embeddings,
+if that's ever worth automating.
+
+**Found and fixed one real bug while verifying this**: `V3__resume_generation.sql`
+declared `total_experience_years` as `SMALLINT`, but `ResumeGeneration`'s Java
+field is `Integer` — Hibernate's schema validation (`ddl-auto: validate`)
+caught the mismatch at startup (`wrong column type encountered ... found
+int2, but expecting integer`) before any test even ran. Fixed by changing the
+column to `INTEGER`. Same lesson as Milestone 1's Failsafe-binding bug: this
+is exactly the class of error `ddl-auto: validate` exists to catch, and it
+only catches it if the app (or a test that boots the Spring context) actually
+starts — never assume an entity/migration pair matches without running it.
+
+## Status: Milestone 6 complete and build-verified (2026-09-04)
+
+Built §17/§18's similarity checks and §19's rewrite loop, wired into
+`ResumeGenerationService`'s per-project drafting step. `mvn verify`: 54/54
+tests green (33 unit, 21 integration).
+
+What it does:
+- `similarity.SimilarityValidator` — embeds the candidate draft and every
+  reference text (same `EmbeddingClient` abstraction as everything else),
+  takes the max cosine similarity across them, and classifies it into §17's
+  three bands: `< 0.55` ACCEPTABLE, `0.55-0.70` REVIEW, `>= 0.70` REWRITE.
+- `similarity.DuplicatePhraseDetector` — §18's "12+ consecutive words match
+  an existing resume" rule, via word-shingle set intersection (candidate's
+  12-word windows vs. each reference text's) rather than a general
+  sequence-matching/LCS library — the rule itself is an exact-match rule, so
+  an exact-match implementation is enough. A hit forces REWRITE regardless of
+  the semantic score — the two checks are independent, either can flag.
+- `ResumeGenerationService.generateProject` — now a loop, not a single call:
+  generate, score with `SimilarityValidator` against (a) the retrieval
+  reference snippets already fetched for the prompt and (b) the descriptions
+  of sibling projects already drafted earlier in *this same request* (§18's
+  "resumes from the same candidate", scoped to one request — see below), and
+  regenerate on a REWRITE verdict up to `MAX_REWRITE_ATTEMPTS = 3` total
+  tries (§19: "limit rewrites to avoid infinite loops"). A retry appends one
+  extra sentence to the same user prompt telling the model the previous
+  draft was too similar — same prompt version, not a new one; the rewrite
+  loop reuses `ProjectGenerationPromptBuilder`, it doesn't need its own.
+- `GeneratedProject` gained four columns recording the *final* attempt's
+  outcome: `similarityScore`, `similarityVerdict`, `duplicatePhraseDetected`,
+  `rewriteAttempts`. Only the final result is stored — per-attempt history
+  (what attempt 1 vs. attempt 2 actually said) is not, which is enough for
+  Milestone 6's own deliverables but would need its own audit table if §32's
+  full "rewrite attempts" auditability is ever built out properly.
+
+**Scope decision worth knowing**: §18 also lists "previously generated
+resumes" and "resumes from the same client/candidate" as things to check
+against — this only covers the *current* request's siblings, not resumes
+from earlier, separate `/resume-generations` calls. `ResumeGeneration.candidateName`
+is a free-text field, not a foreign key to `candidate.Candidate`, so "this
+candidate's other resumes" isn't a query that can be asked yet. Revisit once
+generation requests link to a persisted candidate identity.
+
+**Testing note**: `SimilarityValidator`/`DuplicatePhraseDetector` are pure
+unit tests (`SimilarityValidatorTest` hand-picks embedding vectors via a
+one-line `EmbeddingClient` lambda so exact cosine similarity is under the
+test's control — no hash-based fake needed there). The rewrite loop itself
+is proven against a real Testcontainers Postgres in two new integration
+tests: `ResumeGenerationRewriteIT` (a fake `LlmClient` reproduces a seeded
+knowledge fragment verbatim on attempt 1, forcing REWRITE, then returns a
+different draft on the retry — the fake tells attempts apart by checking
+whether the REWRITE_HINT text is present in the user prompt, no
+counters/mutable state needed) and `ResumeGenerationRewriteCapIT` (a fake
+`LlmClient` that *never* resolves, proving the loop stops at
+`MAX_REWRITE_ATTEMPTS` instead of looping forever).
+
+**Found and fixed one real bug while writing these tests**: the fake
+`EmbeddingClient` pattern shared across every `*IT` test since Milestone 3
+(`new Random(text.hashCode())`, filling a 1536-float vector with
+`random.nextFloat()`) produces vectors with every component in `[0,1)`, not
+`[-1,1)`. For two *unrelated* texts, that systematically biases cosine
+similarity toward **~0.75, not ~0** — close enough to random chance that it
+had never been caught, because every test before this milestone only
+asserted *relative* ranking ("identical text ranks first"), never an
+*absolute* similarity value. Milestone 6's `SimilarityValidator` is the first
+thing to apply an absolute threshold (0.55/0.70) to these fake vectors, and
+it immediately turned any two "different" fake-embedded texts into a
+false REWRITE. Fixed by changing the fake to `random.nextFloat() * 2f - 1f`
+(symmetric range) everywhere it's used (`KnowledgeFragmentApiIT`,
+`ResumeGenerationApiIT`, and both new rewrite tests) — identical-text-ranks-first
+assertions are unaffected (a vector dotted with itself is always cosine 1.0
+regardless of range), but unrelated texts now average to ~0 similarity like
+a real embedding model would. **Lesson: a fake that only proves relative
+ordering can still be quietly wrong in an absolute sense — it just takes an
+absolute-threshold test to notice**, the same category of gap as Milestone
+1's "BUILD SUCCESS with zero tests run" bug, just one layer deeper (the test
+infrastructure itself, not the app).
+
+## Status: Milestone 7 complete and live-verified (2026-09-04)
+
+Built §31's Screen 2 (Generate Resume) and Screen 3 (Review), plus a stubbed
+Screen 1 (Upload), against the existing `/resume-generations` API. React 19 +
+TypeScript + Vite + MUI (§6's recommended stack) via `npm create vite@latest`
+scaffolding, not hand-rolled — the backend so far has been hand-written
+without a scaffolding tool, but there's no equivalent value in reinventing
+Vite's own template.
+
+What it does:
+- `GenerateResumePage` — §31 Screen 2's fields (candidate name, primary role,
+  total experience, repeatable project rows: client/dates/role, plus §11's
+  other optional fields domain/known-technologies) posting straight to
+  `ResumeGenerationRequest`'s shape. Navigates to the review page with the
+  response's `id` on success.
+- `ReviewPage` / `GeneratedProjectCard` — §31 Screen 3: summary, one card per
+  project with description/responsibilities/environment, plus (not in the
+  spec's original screen, but the whole point of Milestone 6) a
+  similarity-verdict chip, a duplicate-phrase warning, and a rewrite-attempt
+  count. Approve/Edit/Regenerate buttons are rendered **disabled** with a
+  tooltip explaining why — `ResumeGenerationController` has no
+  regenerate/approve endpoint (§21, still deferred), and a disabled button
+  that's honest about not working yet is better than one that silently does
+  nothing.
+- `UploadPlaceholderPage` — §31 Screen 1 (upload/view-parsing/edit/confirm)
+  needs resume parsing (Milestone 2, §21's `POST /resumes/upload`), which
+  doesn't exist. This screen exists so the nav entry is present, but it's an
+  honest "not built yet" stub, not a fake upload flow with nothing behind it.
+  Screen 4 (Export) isn't built at all — that's Milestone 8, not 7.
+- `vite.config.ts` proxies `/api` to `localhost:8080` in dev;
+  `frontend/nginx.conf` does the same in the built Docker image
+  (`frontend/Dockerfile`, added to `docker-compose.yml`) — the app only ever
+  calls a relative `/api/v1/...` path, so neither the backend nor the
+  frontend needs any CORS configuration.
+
+**Found and fixed two real bugs by actually running the full stack** (Postgres
++ backend + `npm run dev`, hitting the real API through the Vite proxy) rather
+than trusting the build/tests alone:
+1. **`UnexpectedRollbackException` on any embedding/LLM failure.**
+   `ResumeGenerationService.generate()` was `@Transactional`, and
+   `RetrievalService.retrieveSimilar()` (a *different* bean) runs inside its
+   own `@Transactional(readOnly = true)`. When `embed()` threw
+   `EmbeddingGenerationException` (trivially reproducible: no
+   `OPENAI_API_KEY` configured), Spring marked the *shared physical*
+   transaction rollback-only the instant the exception crossed that inner
+   proxy boundary — before `generate()`'s own `catch` block ever ran. The
+   later `resumeGenerationRepository.save(generation)` then failed with
+   `UnexpectedRollbackException`, which `GlobalExceptionHandler`'s catch-all
+   turned into an opaque 500 instead of the intended `FAILED` generation.
+   **No test had ever exercised this** — every fake `EmbeddingClient` across
+   every `*IT` test was designed to never throw. Fixed by removing
+   `@Transactional` from `generate()` entirely (see its javadoc for the full
+   reasoning) — it calls slow external APIs, so it shouldn't hold a DB
+   transaction open across them regardless of this specific bug; the only
+   write (`save()`) manages its own transaction via Spring Data's repository
+   proxy. Added `ResumeGenerationEmbeddingFailureIT` as the regression test.
+2. **`GlobalExceptionHandler`'s catch-all never logged the exception it was
+   handling.** The response body deliberately never leaks internals
+   ("Unexpected server error"), which meant the *only* place the real cause
+   could have been visible was a server-side log — and that log call didn't
+   exist. Diagnosing bug #1 above required adding it first. Fixed
+   permanently, not just for debugging: `log.error("Unhandled exception on
+   {}", req.getRequestURI(), ex)`.
+
+Both were only reachable by actually running the app without a configured
+API key and hitting it over HTTP — `mvn verify`'s fakes never throw, so
+neither bug could have been caught by the existing automated suite alone.
+**Lesson, same theme as Milestones 1 and 6's bugs**: a test suite that's
+entirely built on fakes that always succeed can't find the failure paths —
+verifying "does it actually run" against something that can genuinely fail
+(a real API call with no key, here) is a different and necessary check.
+
+**Live-verified end to end** (2026-09-04): with the real `OPENAI_API_KEY`
+sourced from `.env`, `POST /api/v1/resume-generations` through the exact
+`localhost:5173` → Vite proxy → `localhost:8080` path the React app itself
+uses returned a `COMPLETED` generation with a real GPT-4o-mini summary and
+project draft (era-appropriate technologies only, `similarityVerdict:
+ACCEPTABLE`, one attempt, no rewrite needed); `GET` round-tripped it back
+through the same proxy. **Not** verified: the page in an actual browser
+window — no screenshot/browser-automation tool was available in this
+session, so the UI's rendering, styling, and interactive behavior are
+unverified beyond `tsc`/`vite build` succeeding and the exact data shape the
+components consume being proven correct against the live backend.
+
+## Status: Milestone 2 complete and live-verified (2026-09-04)
+
+Built §9's resume ingestion flow, out of spec order (after 3-7, not right
+after Milestone 1) - deliberately: §44 itself argues for building the parser
+last since "generation architecture can be tested using manually inserted
+clean data first," and that's exactly what happened. Building it now was
+driven by the user directly asking for it ("uploading resumes to have in
+DB"), not the milestone list order. `mvn verify`: 70/70 tests green (44
+unit, 26 integration).
+
+**Refactor first**: moved `LlmClient`/`LlmRequest`/`LlmResponse`/
+`LlmGenerationException`/`OpenAiLlmClient` out of `generation` into a new
+`llm` package. They started in `generation` (Milestone 5, its only
+consumer); `parser` needing the same abstraction for resume parsing is
+exactly the "second consumer" signal that it isn't generation-specific
+anymore. Not one of §22's originally listed packages - a deliberate,
+documented deviation (see `llm/package-info.java`), same category as
+`POST /knowledge-fragments` not being in §21's original list either.
+
+What it does:
+- `parser.ResumeTextExtractor` — PDF (Apache PDFBox), DOCX (Apache POI/
+  `XWPFDocument`), plain text (no library). Deliberately not supporting
+  legacy `.doc` (HWPF, a different/older binary format) - rare enough not to
+  justify a second code path. A corrupt/unsupported file is a 400
+  (`InvalidRequestException`), not a 500 - it's a property of that specific
+  upload, not a server problem.
+- `parser.ResumeParser` — §10's structured extraction, via `llm.LlmClient`
+  and the new `prompt.ResumeParsingPromptBuilder`. Rule-based section
+  parsing was rejected as impractical for Phase 1 (resume layouts vary too
+  much); the system prompt is explicit that inventing anything not in the
+  source text is wrong, not just undesirable - a fabricated project here
+  would silently corrupt the knowledge base, not just one generated resume.
+  Dates are kept as raw extracted strings ("2016", "2016-01", "Present"),
+  not parsed into `LocalDate` - see `ParsedProject`'s javadoc.
+- `ingestion.ResumeUploadService` — orchestrates §9's flow: extract, parse,
+  persist `ResumeSource` either way (PARSED or FAILED - raw text is saved
+  *before* parsing is attempted, so it survives a parse failure), then
+  create knowledge fragments (one `PROJECT_SUMMARY` from responsibilities,
+  one `TECH_STACK` from the technology list, per parsed project) via the
+  existing `KnowledgeFragmentService` - each embedded and searchable
+  immediately. **Deliberately not `@Transactional`** - identical reasoning
+  to `generation.ResumeGenerationService.generate()`'s javadoc (Milestone
+  5/6): both `resumeParser.parse()` and `knowledgeFragmentService.create()`
+  call out to the LLM/embedding APIs from their own separately-transactional
+  beans, so wrapping this method risks the same `UnexpectedRollbackException`
+  class of bug already found once. `ResumeUploadParsingFailureIT` is the
+  regression test for this specific path (a malformed LLM response during
+  parsing) - see Milestone 5/6's own bug notes above for the general lesson.
+- **Deliberately does NOT auto-create `candidate_project` rows.** §31 Screen
+  1 lists "Edit parsed projects" / "Confirm technologies" as separate
+  actions after upload - that reads as a human-gated confirmation step, not
+  something upload should do automatically. Milestone 2's own deliverables
+  list (Upload API, text extraction, parser, structured JSON, DB
+  persistence) doesn't mention it either. Not built.
+- `knowledge_fragment.source_resume_id` and `candidate_project.source_resume_id`
+  (plain UUID columns since V1, annotated "FK added in Milestone 2 once
+  resume_source exists") got their actual FK constraints added in V4, now
+  that `resume_source` exists. `KnowledgeFragment` gained
+  `applySourceResume(UUID)` (mirroring `applyEmbedding`) since the 9-arg
+  constructor already had callers that shouldn't need to change.
+- Frontend: `UploadResumePage` replaced the Milestone 7 stub - real file
+  picker, calls `POST /resumes/upload`, renders the parsed candidate/projects
+  or the failure reason. `api/client.ts` gained `apiPostMultipart` (no
+  `Content-Type` header - the browser sets the multipart boundary itself;
+  setting it manually produces a request the backend can't parse).
+
+**Live-verified end to end** (2026-09-04): uploaded a real `.txt` resume
+through the actual `localhost:5173` → Vite proxy → `localhost:8080` path
+with the real `OPENAI_API_KEY`. Parsing correctly extracted exactly what was
+in the text (client, role, years, technologies, responsibilities) with
+nothing fabricated; `GET /knowledge-fragments/search` confirmed both
+resulting fragments were created, embedded (`hasEmbedding: true`), linked
+back via `sourceResumeId`, and ranked top for a matching query. **Not**
+re-verified visually in an actual browser window this session either (same
+caveat as Milestone 7) - the data path is proven, the rendering isn't.
+
 ## Suggested next step
 
-With Milestones 1, 3, and 4 done, the natural next step is **Milestone 5
-(generation engine)**: prompt builder + LLM abstraction (§26, same
-provider-interface pattern as `EmbeddingClient`) that actually calls
-`RetrievalService` and `TechnologyTimelineValidator` together to draft a
-resume section. That's the first point where an LLM text-generation call
-(not just embeddings) gets wired in — pick a chat-completions provider before
-starting (§26/§49 apply here too). Resume ingestion/parsing (Milestone 2) can
-still come after, per §44's own reasoning for building it last — there's now
-a manual entry point (`POST /knowledge-fragments`) that makes that safe to
-keep deferring.
+With Milestones 1-7 all done, the core §12 pipeline plus its two feeder
+paths (manual entry and now resume upload) are complete:
+- **A real browser check** of the whole frontend (`ReviewPage`,
+  `GeneratedProjectCard`, and now `UploadResumePage`) - layout, MUI theming,
+  and interactive behavior still haven't been visually confirmed by an
+  actual screenshot/browser-automation tool across two milestones now.
+- **Milestone 8 (export)** — Markdown/DOCX/PDF, plus the export screen
+  (§31 Screen 4).
+- **Regenerate/approve endpoints** (§21) and **confirming a parsed upload
+  into real `candidate_project` rows** (§31 Screen 1's "Edit parsed
+  projects"/"Confirm technologies") — both are human-gated review actions
+  the UI currently has no backend for; they're related (both are "turn a
+  draft into a committed record") and could reasonably be designed together.
+- Seeding ~10 real knowledge fragments *or* just uploading ~10 real resumes
+  now that upload works, would make retrieval/similarity results in a manual
+  check meaningfully realistic instead of near-empty.
+- The tone/quality LLM-judge (§29) is still an open scope question,
+  unrelated to ingestion or the frontend.

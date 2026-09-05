@@ -41,7 +41,7 @@ class KnowledgeFragmentApiIT extends AbstractIntegrationTest {
                 Random random = new Random(text.hashCode());
                 float[] vector = new float[1536];
                 for (int i = 0; i < vector.length; i++) {
-                    vector[i] = random.nextFloat();
+                    vector[i] = random.nextFloat() * 2f - 1f; // [-1,1) - symmetric, so unrelated texts average to ~0 cosine similarity
                 }
                 return vector;
             };

@@ -24,14 +24,23 @@ services:
       DB_NAME: resumeai
       DB_USER: resumeai
       DB_PASSWORD: resumeai
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
 
-# frontend and a local LLM runtime (§27) are added in later milestones -
-# nothing to build yet.
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+# a local LLM runtime (§27) is added in a later milestone - nothing to build
+# yet.
 
 volumes:
   postgres_data:

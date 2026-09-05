@@ -32,4 +32,11 @@ public interface KnowledgeFragmentRepository extends JpaRepository<KnowledgeFrag
                                           @Param("startYear") Integer startYear,
                                           @Param("endYear") Integer endYear,
                                           @Param("limit") int limit);
+
+    // Derived delete query (Spring Data generates the JPQL) - used when a
+    // resume_source is deleted, so its fragments don't become orphaned
+    // duplicates sitting in the knowledge base forever (the FK itself is
+    // ON DELETE SET NULL, not CASCADE - see V4 migration - so this has to be
+    // done explicitly, not left to the database).
+    long deleteBySourceResumeId(UUID sourceResumeId);
 }

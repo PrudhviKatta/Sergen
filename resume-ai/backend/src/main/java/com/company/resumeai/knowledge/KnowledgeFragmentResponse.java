@@ -15,6 +15,7 @@ public record KnowledgeFragmentResponse(
         Short startYear,
         Short endYear,
         boolean hasEmbedding,
+        UUID sourceResumeId,
         Instant createdAt
 ) {
 
@@ -31,6 +32,7 @@ public record KnowledgeFragmentResponse(
                 fragment.getStartYear(),
                 fragment.getEndYear(),
                 fragment.hasEmbedding(),
+                fragment.getSourceResumeId(),
                 fragment.getCreatedAt()
         );
     }
